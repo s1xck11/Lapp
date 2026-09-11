@@ -24,13 +24,29 @@ public class WebAppActivity extends Activity {
         settings.setUseWideViewPort(true);
         settings.setBuiltInZoomControls(true);
         settings.setDisplayZoomControls(false);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        settings.setDatabaseEnabled(true);
         
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                view.loadUrl(url);
+                return true;
+            }
+        });
+        
         webView.setWebChromeClient(new WebChromeClient());
         
         String filePath = getIntent().getStringExtra("filePath");
+        String url = getIntent().getStringExtra("url");
         
-        if (filePath != null && new File(filePath).exists()) {
+        if (url != null && !url.isEmpty()) {
+            webView.loadUrl(url);
+        } else if (filePath != null && new File(filePath).exists()) {
             webView.loadUrl("file://" + filePath);
         } else {
             webView.loadData("<h1>Файл не найден</h1>", "text/html", "UTF-8");
