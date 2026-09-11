@@ -2,6 +2,7 @@ package com.lapp.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.ShortcutInfo;
@@ -32,6 +33,10 @@ public class MainActivity extends Activity {
     private int textColor;
     private int accentColor;
     private int subTextColor;
+    
+    // Для обновления: храним, какое приложение сейчас обновляем
+    private int updateIndex = -1;
+    private JSONObject updateApp = null;
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,7 +92,6 @@ public class MainActivity extends Activity {
         mainLayout.setBackgroundColor(backgroundColor);
         mainLayout.setPadding(dp(20), dp(48), dp(20), dp(20));
         
-        // Заголовок
         TextView title = new TextView(this);
         title.setText("Lapp");
         title.setTextSize(34);
@@ -105,7 +109,6 @@ public class MainActivity extends Activity {
         mainLayout.addView(title);
         mainLayout.addView(subtitle);
         
-        // Кнопки внизу
         LinearLayout bottomBar = new LinearLayout(this);
         bottomBar.setOrientation(LinearLayout.HORIZONTAL);
         bottomBar.setGravity(Gravity.CENTER);
@@ -118,7 +121,7 @@ public class MainActivity extends Activity {
         
         Button btnAdd = createButton("+ Файл", true);
         btnAdd.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { openFilePicker(); }
+            public void onClick(View v) { openFilePicker(false); }
         });
         
         Button btnTheme = createButton("Тема", false);
@@ -137,7 +140,6 @@ public class MainActivity extends Activity {
         bottomBar.addView(btnAdd);
         bottomBar.addView(btnTheme);
         
-        // Скролл-контейнер
         ScrollView scrollView = new ScrollView(this);
         scrollView.setBackgroundColor(Color.TRANSPARENT);
         scrollView.setClipToPadding(false);
@@ -190,29 +192,31 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("Добавить ссылку")
             .setView(input)
-            .setPositiveButton("Добавить", (dialog, which) -> {
-                String url = input.getText().toString().trim();
-                if (url.isEmpty()) return;
-                if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                    url = "https://" + url;
-                }
-                try {
-                    String name = Uri.parse(url).getHost();
-                    if (name == null) name = "Веб-приложение";
-                    if (name.startsWith("www.")) name = name.substring(4);
-                    
-                    JSONArray apps = getSavedApps();
-                    JSONObject app = new JSONObject();
-                    app.put("name", name);
-                    app.put("url", url);
-                    app.put("type", "url");
-                    app.put("date", System.currentTimeMillis());
-                    apps.put(app);
-                    prefs.edit().putString("apps", apps.toString()).apply();
-                    loadSavedApps();
-                    Toast.makeText(this, "Добавлено!", Toast.LENGTH_SHORT).show();
-                } catch (Exception e) {
-                    Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            .setPositiveButton("Добавить", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int which) {
+                    String url = input.getText().toString().trim();
+                    if (url.isEmpty()) return;
+                    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                        url = "https://" + url;
+                    }
+                    try {
+                        String name = Uri.parse(url).getHost();
+                        if (name == null) name = "Веб-приложение";
+                        if (name.startsWith("www.")) name = name.substring(4);
+                        
+                        JSONArray apps = getSavedApps();
+                        JSONObject app = new JSONObject();
+                        app.put("name", name);
+                        app.put("url", url);
+                        app.put("type", "url");
+                        app.put("date", System.currentTimeMillis());
+                        apps.put(app);
+                        prefs.edit().putString("apps", apps.toString()).apply();
+                        loadSavedApps();
+                        Toast.makeText(MainActivity.this, "Добавлено!", Toast.LENGTH_SHORT).show();
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    }
                 }
             })
             .setNegativeButton("Отмена", null)
@@ -223,65 +227,69 @@ public class MainActivity extends Activity {
         String[] themes = {"Белая", "Черная", "Нежно-розовая"};
         new AlertDialog.Builder(this)
             .setTitle("Выберите тему")
-            .setItems(themes, (dialog, which) -> {
-                switch(which) {
-                    case 0: currentTheme = "white"; break;
-                    case 1: currentTheme = "black"; break;
-                    case 2: currentTheme = "pink"; break;
+            .setItems(themes, new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface dialog, int which) {
+                    switch(which) {
+                        case 0: currentTheme = "white"; break;
+                        case 1: currentTheme = "black"; break;
+                        case 2: currentTheme = "pink"; break;
+                    }
+                    prefs.edit().putString("theme", currentTheme).apply();
+                    recreate();
                 }
-                prefs.edit().putString("theme", currentTheme).apply();
-                recreate();
             })
             .show();
     }
     
-    private void openFilePicker() {
+    private void openFilePicker(boolean isUpdate) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
-        startActivityForResult(intent, 1);
+        startActivityForResult(intent, isUpdate ? 2 : 1);
     }
     
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         
-        if (requestCode == 1 && resultCode == RESULT_OK && data != null) {
-            Uri uri = data.getData();
-            if (uri != null) {
-                try {
-                    saveWebApp(uri);
-                    loadSavedApps();
-                    Toast.makeText(this, "Приложение добавлено!", Toast.LENGTH_SHORT).show();
-                } catch (Exception e) {
-                    Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                }
+        if (resultCode != RESULT_OK || data == null) return;
+        Uri uri = data.getData();
+        if (uri == null) return;
+        
+        if (requestCode == 1) {
+            // Добавление нового приложения
+            try {
+                saveNewWebApp(uri);
+                loadSavedApps();
+                Toast.makeText(this, "Приложение добавлено!", Toast.LENGTH_SHORT).show();
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        } else if (requestCode == 2) {
+            // Обновление существующего
+            try {
+                performUpdate(uri);
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка обновления: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
         }
     }
     
-    private void saveWebApp(Uri uri) throws Exception {
-        InputStream inputStream = getContentResolver().openInputStream(uri);
-        String fileName = getFileName(uri);
+    private void saveNewWebApp(Uri uri) throws Exception {
+        // Создаём уникальную папку для приложения
+        String baseName = getCleanName(uri);
+        String folderName = baseName + "_" + System.currentTimeMillis();
         
-        File dir = new File(getFilesDir(), "webapps");
-        if (!dir.exists()) dir.mkdirs();
+        File appDir = new File(new File(getFilesDir(), "webapps"), folderName);
+        appDir.mkdirs();
         
-        File destFile = new File(dir, fileName);
-        FileOutputStream outputStream = new FileOutputStream(destFile);
-        
-        byte[] buffer = new byte[1024];
-        int length;
-        while ((length = inputStream.read(buffer)) > 0) {
-            outputStream.write(buffer, 0, length);
-        }
-        outputStream.close();
-        inputStream.close();
+        File destFile = new File(appDir, "index.html");
+        copyFile(uri, destFile);
         
         JSONArray apps = getSavedApps();
         JSONObject app = new JSONObject();
-        app.put("name", fileName.replace(".html", "").replace(".htm", ""));
-        app.put("file", fileName);
+        app.put("name", baseName);
+        app.put("folder", folderName);
         app.put("path", destFile.getAbsolutePath());
         app.put("type", "file");
         app.put("date", System.currentTimeMillis());
@@ -290,15 +298,111 @@ public class MainActivity extends Activity {
         prefs.edit().putString("apps", apps.toString()).apply();
     }
     
-    private String getFileName(Uri uri) {
-        String result = "app_" + System.currentTimeMillis() + ".html";
+    private String getCleanName(Uri uri) {
+        String name = "app";
         String path = uri.getLastPathSegment();
-        if (path != null && path.contains("/")) {
-            result = path.substring(path.lastIndexOf("/") + 1);
-        } else if (path != null) {
-            result = path;
+        if (path != null) {
+            if (path.contains("/")) path = path.substring(path.lastIndexOf("/") + 1);
+            name = path.replace(".html", "").replace(".htm", "");
+            if (name.isEmpty()) name = "app";
         }
-        return result;
+        return name;
+    }
+    
+    private void copyFile(Uri uri, File dest) throws Exception {
+        InputStream is = getContentResolver().openInputStream(uri);
+        FileOutputStream os = new FileOutputStream(dest);
+        byte[] buffer = new byte[4096];
+        int len;
+        while ((len = is.read(buffer)) > 0) {
+            os.write(buffer, 0, len);
+        }
+        os.close();
+        is.close();
+    }
+    
+    private void performUpdate(Uri uri) throws Exception {
+        if (updateApp == null) return;
+        
+        final JSONObject app = updateApp;
+        final Uri fileUri = uri;
+        
+        // Определяем новое имя из файла
+        String newName = getCleanName(uri);
+        final String oldName = app.getString("name");
+        
+        if (!newName.equals(oldName)) {
+            // Спрашиваем: переименовать?
+            new AlertDialog.Builder(this)
+                .setTitle("Переименовать?")
+                .setMessage("Имя файла: \"" + newName + "\"\nТекущее имя: \"" + oldName + "\"\n\nПереименовать приложение?")
+                .setPositiveButton("Да, переименовать", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        try {
+                            doUpdateFile(app, fileUri, newName);
+                        } catch (Exception e) {
+                            Toast.makeText(MainActivity.this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .setNegativeButton("Нет, оставить имя", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        try {
+                            doUpdateFile(app, fileUri, null);
+                        } catch (Exception e) {
+                            Toast.makeText(MainActivity.this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .show();
+        } else {
+            // Имя совпадает — обновляем без вопросов
+            doUpdateFile(app, fileUri, null);
+        }
+    }
+    
+    private void doUpdateFile(JSONObject app, Uri uri, String newName) throws Exception {
+        // Получаем путь к файлу в существующей папке
+        String oldPath = app.getString("path");
+        File oldFile = new File(oldPath);
+        
+        // Перезаписываем тот же самый файл index.html — origin сохранится!
+        copyFile(uri, oldFile);
+        
+        // Если нужно переименовать — меняем только отображаемое имя в JSON
+        if (newName != null) {
+            app.put("name", newName);
+            
+            // Обновляем в общем списке
+            JSONArray apps = getSavedApps();
+            for (int i = 0; i < apps.length(); i++) {
+                JSONObject current = apps.getJSONObject(i);
+                if (current.optString("path", "").equals(oldPath)) {
+                    current.put("name", newName);
+                    break;
+                }
+            }
+            prefs.edit().putString("apps", apps.toString()).apply();
+        }
+        
+        app.put("date", System.currentTimeMillis());
+        
+        // Обновляем дату в списке
+        JSONArray apps2 = getSavedApps();
+        for (int i = 0; i < apps2.length(); i++) {
+            JSONObject current = apps2.getJSONObject(i);
+            if (current.optString("path", "").equals(oldPath)) {
+                current.put("date", System.currentTimeMillis());
+                break;
+            }
+        }
+        prefs.edit().putString("apps", apps2.toString()).apply();
+        
+        updateIndex = -1;
+        updateApp = null;
+        loadSavedApps();
+        
+        Toast.makeText(this, "Обновлено! Данные сохранены.", Toast.LENGTH_LONG).show();
     }
     
     private JSONArray getSavedApps() {
@@ -354,7 +458,7 @@ public class MainActivity extends Activity {
         }
     }
     
-    private void addAppCard(JSONObject app) throws Exception {
+    private void addAppCard(final JSONObject app) throws Exception {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(20), dp(18), dp(20), dp(18));
@@ -376,7 +480,6 @@ public class MainActivity extends Activity {
         topRow.setOrientation(LinearLayout.HORIZONTAL);
         topRow.setGravity(Gravity.CENTER_VERTICAL);
         
-        // Иконка-кружок
         TextView icon = new TextView(this);
         String type = app.optString("type", "file");
         icon.setText(type.equals("url") ? "🌐" : "📄");
@@ -393,7 +496,6 @@ public class MainActivity extends Activity {
         iconParams.setMargins(0, 0, dp(14), 0);
         icon.setLayoutParams(iconParams);
         
-        // Название + адрес
         LinearLayout textCol = new LinearLayout(this);
         textCol.setOrientation(LinearLayout.VERTICAL);
         textCol.setLayoutParams(new LinearLayout.LayoutParams(0, 
@@ -434,38 +536,106 @@ public class MainActivity extends Activity {
         final String appName = app.getString("name");
         final String appPath = app.optString("path", "");
         final String appUrl = app.optString("url", "");
+        final String appType = type;
         
+        // Открыть
         Button btnOpen = createSmallButton("Открыть", true);
-        btnOpen.setOnClickListener(v -> {
-            Intent intent = new Intent(MainActivity.this, WebAppActivity.class);
-            if (type.equals("url")) {
-                intent.putExtra("url", appUrl);
-            } else {
-                intent.putExtra("filePath", appPath);
+        btnOpen.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Intent intent = new Intent(MainActivity.this, WebAppActivity.class);
+                if (appType.equals("url")) {
+                    intent.putExtra("url", appUrl);
+                } else {
+                    intent.putExtra("filePath", appPath);
+                }
+                startActivity(intent);
             }
-            startActivity(intent);
         });
         
-        Button btnShortcut = createSmallButton("Ярлык", false);
-        btnShortcut.setOnClickListener(v -> 
-            createShortcut(appName, appPath, appUrl, type));
+        // Обновить (только для файлов) или Ярлык (для ссылок)
+        Button btnMiddle;
+        if (appType.equals("file")) {
+            btnMiddle = createSmallButton("Обновить", false);
+            btnMiddle.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    confirmUpdate(app);
+                }
+            });
+        } else {
+            btnMiddle = createSmallButton("Ярлык", false);
+            btnMiddle.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    createShortcut(appName, appPath, appUrl, appType);
+                }
+            });
+        }
         
         Button btnDelete = createSmallButton("Удалить", false);
-        btnDelete.setOnClickListener(v -> deleteApp(appPath, appUrl));
+        btnDelete.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                confirmDelete(appPath, appUrl);
+            }
+        });
         
         LinearLayout.LayoutParams smallParams = new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         smallParams.setMargins(dp(3), 0, dp(3), 0);
         btnOpen.setLayoutParams(smallParams);
-        btnShortcut.setLayoutParams(smallParams);
+        btnMiddle.setLayoutParams(smallParams);
         btnDelete.setLayoutParams(smallParams);
         
         btnRow.addView(btnOpen);
-        btnRow.addView(btnShortcut);
+        btnRow.addView(btnMiddle);
         btnRow.addView(btnDelete);
         card.addView(btnRow);
         
+        // Вторая строка кнопок для файлов: ярлык отдельно
+        if (appType.equals("file")) {
+            LinearLayout btnRow2 = new LinearLayout(this);
+            btnRow2.setOrientation(LinearLayout.HORIZONTAL);
+            btnRow2.setPadding(0, dp(8), 0, 0);
+            
+            Button btnShortcut = createSmallButton("Создать ярлык", false);
+            btnShortcut.setOnClickListener(new View.OnClickListener() {
+                public void onClick(View v) {
+                    createShortcut(appName, appPath, appUrl, appType);
+                }
+            });
+            btnShortcut.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+            btnRow2.addView(btnShortcut);
+            card.addView(btnRow2);
+        }
+        
         appsContainer.addView(card);
+    }
+    
+    private void confirmUpdate(final JSONObject app) {
+        new AlertDialog.Builder(this)
+            .setTitle("Обновить приложение?")
+            .setMessage("Файл будет заменён новой версией.\n\n✅ Данные (localStorage, cookies, настройки) сохранятся.\n\nПродолжить?")
+            .setPositiveButton("Обновить", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    updateApp = app;
+                    openFilePicker(true);
+                }
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
+    }
+    
+    private void confirmDelete(String path, String url) {
+        new AlertDialog.Builder(this)
+            .setTitle("Удалить приложение?")
+            .setMessage("⚠️ Все данные приложения будут потеряны безвозвратно.\n\nПродолжить?")
+            .setPositiveButton("Удалить", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    deleteApp(path, url);
+                }
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
     }
     
     private int adjustAlpha(int color, float factor) {
@@ -502,7 +672,6 @@ public class MainActivity extends Activity {
     
     private void createShortcut(String name, String path, String url, String type) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Новый метод через ShortcutManager (Android 8+)
             try {
                 ShortcutManager shortcutManager = getSystemService(ShortcutManager.class);
                 
@@ -515,7 +684,8 @@ public class MainActivity extends Activity {
                         intent.putExtra("filePath", path);
                     }
                     
-                    ShortcutInfo shortcut = new ShortcutInfo.Builder(this, "lapp_" + name + "_" + System.currentTimeMillis())
+                    ShortcutInfo shortcut = new ShortcutInfo.Builder(this, 
+                        "lapp_" + name + "_" + System.currentTimeMillis())
                         .setShortLabel(name)
                         .setLongLabel(name)
                         .setIcon(Icon.createWithResource(this, R.drawable.ic_launcher))
@@ -525,13 +695,12 @@ public class MainActivity extends Activity {
                     shortcutManager.requestPinShortcut(shortcut, null);
                     Toast.makeText(this, "Запрос на создание ярлыка отправлен", Toast.LENGTH_SHORT).show();
                 } else {
-                    Toast.makeText(this, "Ярлыки не поддерживаются на этом устройстве", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Ярлыки не поддерживаются", Toast.LENGTH_LONG).show();
                 }
             } catch (Exception e) {
                 Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
         } else {
-            // Старый метод для Android 7 и ниже
             Intent shortcutIntent = new Intent(this, WebAppActivity.class);
             shortcutIntent.setAction(Intent.ACTION_VIEW);
             if (type.equals("url")) {
@@ -554,9 +723,15 @@ public class MainActivity extends Activity {
     
     private void deleteApp(String path, String url) {
         try {
+            // Удаляем всю папку приложения
             if (!path.isEmpty()) {
                 File file = new File(path);
-                if (file.exists()) file.delete();
+                File parentDir = file.getParentFile();
+                if (parentDir != null && parentDir.exists()) {
+                    deleteRecursive(parentDir);
+                } else if (file.exists()) {
+                    file.delete();
+                }
             }
             
             JSONArray apps = getSavedApps();
@@ -577,5 +752,15 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+    
+    private void deleteRecursive(File file) {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) {
+                for (File child : children) deleteRecursive(child);
+            }
+        }
+        file.delete();
     }
 }
