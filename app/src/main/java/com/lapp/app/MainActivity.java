@@ -23,7 +23,6 @@ import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.*;
 import java.io.*;
 import java.net.URL;
@@ -34,7 +33,6 @@ import org.json.*;
 public class MainActivity extends Activity {
     
     private LinearLayout rootLayout;
-    private LinearLayout contentArea;
     private LinearLayout appsGrid;
     private SharedPreferences prefs;
     private String currentTheme = "white";
@@ -133,7 +131,6 @@ public class MainActivity extends Activity {
         
         // Кнопка добавить (справа)
         ImageButton btnAdd = createIconButton("+");
-        btnAdd.setTextSize(28);
         btnAdd.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 showAddMenu(v);
@@ -170,7 +167,6 @@ public class MainActivity extends Activity {
         bg.setColor(cardColor);
         btn.setBackground(bg);
         
-        // Используем TextView вместо иконки — рисуем символ
         btn.setImageDrawable(textToDrawable(symbol, textColor, 48));
         btn.setScaleType(ImageView.ScaleType.CENTER);
         
@@ -300,7 +296,6 @@ public class MainActivity extends Activity {
     private void saveNewWebApp(Uri uri) throws Exception {
         String html = readTextFromUri(uri);
         
-        // Парсим название и иконку из HTML
         String htmlTitle = parseTitle(html);
         String iconUrl = parseIconUrl(html);
         
@@ -308,10 +303,8 @@ public class MainActivity extends Activity {
         String baseName = fileName.replace(".html", "").replace(".htm", "");
         if (baseName.isEmpty()) baseName = "app";
         
-        // Если есть <title> — используем его
         String finalName = (htmlTitle != null && !htmlTitle.isEmpty()) ? htmlTitle : baseName;
         
-        // Создаём папку
         String folderName = "app_" + System.currentTimeMillis();
         File appDir = new File(new File(getFilesDir(), "webapps"), folderName);
         appDir.mkdirs();
@@ -321,7 +314,6 @@ public class MainActivity extends Activity {
         fos.write(html.getBytes("UTF-8"));
         fos.close();
         
-        // Загружаем иконку, если она есть
         String savedIconPath = "";
         if (iconUrl != null && !iconUrl.isEmpty()) {
             savedIconPath = downloadIcon(iconUrl, appDir);
@@ -368,17 +360,14 @@ public class MainActivity extends Activity {
     
     private String parseIconUrl(String html) {
         try {
-            // <link rel="icon" href="...">
             Pattern p1 = Pattern.compile("<link[^>]*rel=[\"'](?:icon|shortcut icon|apple-touch-icon)[\"'][^>]*href=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
             Matcher m1 = p1.matcher(html);
             if (m1.find()) return m1.group(1);
             
-            // <link href="..." rel="icon">
             Pattern p2 = Pattern.compile("<link[^>]*href=[\"']([^\"']+)[\"'][^>]*rel=[\"'](?:icon|shortcut icon|apple-touch-icon)[\"']", Pattern.CASE_INSENSITIVE);
             Matcher m2 = p2.matcher(html);
             if (m2.find()) return m2.group(1);
             
-            // <meta property="og:image" content="...">
             Pattern p3 = Pattern.compile("<meta[^>]*property=[\"']og:image[\"'][^>]*content=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
             Matcher m3 = p3.matcher(html);
             if (m3.find()) return m3.group(1);
@@ -390,13 +379,12 @@ public class MainActivity extends Activity {
         try {
             if (url.startsWith("//")) url = "https:" + url;
             if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("data:")) {
-                return ""; // относительный путь — не поддерживаем
+                return "";
             }
             
             File iconFile = new File(appDir, "icon.png");
             
             if (url.startsWith("data:image")) {
-                // base64
                 int comma = url.indexOf(',');
                 if (comma > 0) {
                     String b64 = url.substring(comma + 1);
@@ -409,7 +397,6 @@ public class MainActivity extends Activity {
                 return "";
             }
             
-            // Скачиваем
             URL u = new URL(url);
             java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
             conn.setConnectTimeout(5000);
@@ -487,12 +474,10 @@ public class MainActivity extends Activity {
         File oldFile = new File(oldPath);
         File appDir = oldFile.getParentFile();
         
-        // Перезаписываем файл — origin сохраняется!
         FileOutputStream fos = new FileOutputStream(oldFile);
         fos.write(html.getBytes("UTF-8"));
         fos.close();
         
-        // Обновляем иконку, если есть
         String newIcon = "";
         if (iconUrl != null && !iconUrl.isEmpty() && appDir != null) {
             newIcon = downloadIcon(iconUrl, appDir);
@@ -562,7 +547,6 @@ public class MainActivity extends Activity {
                 return;
             }
             
-            // Строим сетку по 4 колонки
             int columns = 4;
             LinearLayout currentRow = null;
             
@@ -583,7 +567,6 @@ public class MainActivity extends Activity {
                 currentRow.addView(iconView);
             }
             
-            // Добиваем пустыми местами в последней строке
             if (currentRow != null) {
                 int lastRowCount = apps.length() % columns;
                 if (lastRowCount > 0) {
@@ -604,20 +587,17 @@ public class MainActivity extends Activity {
         wrapper.setOrientation(LinearLayout.VERTICAL);
         wrapper.setGravity(Gravity.CENTER_HORIZONTAL);
         
-        // Иконка (квадрат со скруглением)
         FrameLayout iconFrame = new FrameLayout(this);
         int iconSize = dp(64);
         FrameLayout.LayoutParams frameParams = new FrameLayout.LayoutParams(iconSize, iconSize);
         iconFrame.setLayoutParams(frameParams);
         
-        // Фон-скругление
         GradientDrawable iconBg = new GradientDrawable();
         iconBg.setColor(cardColor);
         iconBg.setCornerRadius(dp(14));
         iconFrame.setBackground(iconBg);
         iconFrame.setClipToOutline(true);
         
-        // Загружаем картинку или ставим букву
         String iconPath = app.optString("icon", "");
         boolean iconLoaded = false;
         
@@ -641,7 +621,6 @@ public class MainActivity extends Activity {
         }
         
         if (!iconLoaded) {
-            // Заглушка — первая буква + цвет от хэша
             String name = app.getString("name");
             String letter = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase();
             
@@ -663,7 +642,6 @@ public class MainActivity extends Activity {
             iconFrame.addView(letterView);
         }
         
-        // Название под иконкой
         TextView nameView = new TextView(this);
         nameView.setText(app.getString("name"));
         nameView.setTextSize(11);
@@ -676,14 +654,12 @@ public class MainActivity extends Activity {
         wrapper.addView(iconFrame);
         wrapper.addView(nameView);
         
-        // Клик — открыть
         wrapper.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
                 openApp(app);
             }
         });
         
-        // Долгое нажатие — меню
         wrapper.setOnLongClickListener(new View.OnLongClickListener() {
             public boolean onLongClick(View v) {
                 showAppMenu(app, v);
@@ -809,7 +785,7 @@ public class MainActivity extends Activity {
                 app.optBoolean("perm_mic", true),
                 app.optBoolean("perm_notif", true)
             };
-            String[] labels = {"Камера", "Микрофон", "Уведомления"};
+            String[] labels = {"📷  Камера", "🎤  Микрофон", "🔔  Уведомления"};
             
             new AlertDialog.Builder(this)
                 .setTitle("Разрешения: " + name)
