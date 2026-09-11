@@ -8,23 +8,34 @@ import android.content.SharedPreferences;
 import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
 import android.graphics.drawable.Icon;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.*;
-import android.graphics.*;
-import android.graphics.drawable.GradientDrawable;
 import java.io.*;
+import java.net.URL;
 import java.util.*;
+import java.util.regex.*;
 import org.json.*;
 
 public class MainActivity extends Activity {
     
-    private LinearLayout mainLayout;
-    private LinearLayout appsContainer;
+    private LinearLayout rootLayout;
+    private LinearLayout contentArea;
+    private LinearLayout appsGrid;
     private SharedPreferences prefs;
     private String currentTheme = "white";
     
@@ -34,8 +45,6 @@ public class MainActivity extends Activity {
     private int accentColor;
     private int subTextColor;
     
-    // Для обновления: храним, какое приложение сейчас обновляем
-    private int updateIndex = -1;
     private JSONObject updateApp = null;
     
     @Override
@@ -47,13 +56,19 @@ public class MainActivity extends Activity {
         
         applyTheme();
         createUI();
-        loadSavedApps();
+        loadApps();
     }
     
     @Override
     protected void onResume() {
         super.onResume();
-        if (appsContainer != null) loadSavedApps();
+        String newTheme = prefs.getString("theme", "white");
+        if (!newTheme.equals(currentTheme)) {
+            currentTheme = newTheme;
+            recreate();
+            return;
+        }
+        if (appsGrid != null) loadApps();
     }
     
     private void applyTheme() {
@@ -87,100 +102,116 @@ public class MainActivity extends Activity {
     }
     
     private void createUI() {
-        mainLayout = new LinearLayout(this);
-        mainLayout.setOrientation(LinearLayout.VERTICAL);
-        mainLayout.setBackgroundColor(backgroundColor);
-        mainLayout.setPadding(dp(20), dp(48), dp(20), dp(20));
+        rootLayout = new LinearLayout(this);
+        rootLayout.setOrientation(LinearLayout.VERTICAL);
+        rootLayout.setBackgroundColor(backgroundColor);
         
+        // === ВЕРХНЯЯ ПАНЕЛЬ ===
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setPadding(dp(16), dp(40), dp(16), dp(12));
+        
+        // Кнопка настроек (слева)
+        ImageButton btnSettings = createIconButton("⚙");
+        btnSettings.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, SettingsActivity.class));
+            }
+        });
+        
+        // Заголовок (центр)
         TextView title = new TextView(this);
         title.setText("Lapp");
-        title.setTextSize(34);
+        title.setTextSize(24);
         title.setTextColor(textColor);
         title.setTypeface(null, Typeface.BOLD);
-        title.setGravity(Gravity.START);
-        
-        TextView subtitle = new TextView(this);
-        subtitle.setText("Мои веб-приложения");
-        subtitle.setTextSize(14);
-        subtitle.setTextColor(subTextColor);
-        subtitle.setGravity(Gravity.START);
-        subtitle.setPadding(0, dp(4), 0, dp(24));
-        
-        mainLayout.addView(title);
-        mainLayout.addView(subtitle);
-        
-        LinearLayout bottomBar = new LinearLayout(this);
-        bottomBar.setOrientation(LinearLayout.HORIZONTAL);
-        bottomBar.setGravity(Gravity.CENTER);
-        bottomBar.setPadding(0, dp(16), 0, dp(8));
-        
-        Button btnUrl = createButton("+ Ссылка", true);
-        btnUrl.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { showAddUrlDialog(); }
-        });
-        
-        Button btnAdd = createButton("+ Файл", true);
-        btnAdd.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { openFilePicker(false); }
-        });
-        
-        Button btnTheme = createButton("Тема", false);
-        btnTheme.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) { showThemeDialog(); }
-        });
-        
-        LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+        title.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(
             0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        btnParams.setMargins(dp(4), 0, dp(4), 0);
-        btnUrl.setLayoutParams(btnParams);
-        btnAdd.setLayoutParams(btnParams);
-        btnTheme.setLayoutParams(btnParams);
+        title.setLayoutParams(titleParams);
         
-        bottomBar.addView(btnUrl);
-        bottomBar.addView(btnAdd);
-        bottomBar.addView(btnTheme);
+        // Кнопка добавить (справа)
+        ImageButton btnAdd = createIconButton("+");
+        btnAdd.setTextSize(28);
+        btnAdd.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                showAddMenu(v);
+            }
+        });
         
+        topBar.addView(btnSettings);
+        topBar.addView(title);
+        topBar.addView(btnAdd);
+        rootLayout.addView(topBar);
+        
+        // === ОБЛАСТЬ КОНТЕНТА ===
         ScrollView scrollView = new ScrollView(this);
         scrollView.setBackgroundColor(Color.TRANSPARENT);
         scrollView.setClipToPadding(false);
-        
+        scrollView.setPadding(dp(12), dp(8), dp(12), dp(20));
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
         scrollView.setLayoutParams(scrollParams);
         
-        appsContainer = new LinearLayout(this);
-        appsContainer.setOrientation(LinearLayout.VERTICAL);
-        scrollView.addView(appsContainer);
+        appsGrid = new LinearLayout(this);
+        appsGrid.setOrientation(LinearLayout.VERTICAL);
+        scrollView.addView(appsGrid);
+        rootLayout.addView(scrollView);
         
-        mainLayout.addView(scrollView);
-        mainLayout.addView(bottomBar);
-        
-        setContentView(mainLayout);
+        setContentView(rootLayout);
     }
     
-    private Button createButton(String text, boolean primary) {
-        Button btn = new Button(this);
-        btn.setText(text);
-        btn.setTextSize(14);
-        btn.setAllCaps(false);
-        btn.setTypeface(null, Typeface.BOLD);
+    private ImageButton createIconButton(String symbol) {
+        ImageButton btn = new ImageButton(this);
         
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setCornerRadius(dp(28));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(cardColor);
+        btn.setBackground(bg);
         
-        if (primary) {
-            drawable.setColor(accentColor);
-            btn.setTextColor(Color.WHITE);
-        } else {
-            drawable.setColor(cardColor);
-            drawable.setStroke(dp(1), accentColor);
-            btn.setTextColor(textColor);
-        }
+        // Используем TextView вместо иконки — рисуем символ
+        btn.setImageDrawable(textToDrawable(symbol, textColor, 48));
+        btn.setScaleType(ImageView.ScaleType.CENTER);
         
-        btn.setBackground(drawable);
-        btn.setPadding(dp(8), dp(12), dp(8), dp(12));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(44), dp(44));
+        btn.setLayoutParams(params);
+        btn.setPadding(dp(8), dp(8), dp(8), dp(8));
         
         return btn;
+    }
+    
+    private Drawable textToDrawable(String text, int color, int sizePx) {
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(color);
+        paint.setTextSize(sizePx);
+        paint.setTypeface(Typeface.DEFAULT_BOLD);
+        paint.setTextAlign(Paint.Align.CENTER);
+        
+        int size = sizePx + dp(8);
+        Bitmap bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawText(text, size / 2f, size / 2f - (paint.descent() + paint.ascent()) / 2f, paint);
+        
+        return new BitmapDrawable(getResources(), bitmap);
+    }
+    
+    private void showAddMenu(View anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        popup.getMenu().add("🔗  Добавить ссылку");
+        popup.getMenu().add("📄  Добавить файл");
+        popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
+            public boolean onMenuItemClick(android.view.MenuItem item) {
+                String t = item.getTitle().toString();
+                if (t.contains("ссылку")) {
+                    showAddUrlDialog();
+                } else {
+                    openFilePicker(false, null);
+                }
+                return true;
+            }
+        });
+        popup.show();
     }
     
     private void showAddUrlDialog() {
@@ -201,7 +232,7 @@ public class MainActivity extends Activity {
                     }
                     try {
                         String name = Uri.parse(url).getHost();
-                        if (name == null) name = "Веб-приложение";
+                        if (name == null) name = "Web";
                         if (name.startsWith("www.")) name = name.substring(4);
                         
                         JSONArray apps = getSavedApps();
@@ -210,9 +241,13 @@ public class MainActivity extends Activity {
                         app.put("url", url);
                         app.put("type", "url");
                         app.put("date", System.currentTimeMillis());
+                        app.put("icon", "");
+                        app.put("perm_camera", true);
+                        app.put("perm_mic", true);
+                        app.put("perm_notif", true);
                         apps.put(app);
                         prefs.edit().putString("apps", apps.toString()).apply();
-                        loadSavedApps();
+                        loadApps();
                         Toast.makeText(MainActivity.this, "Добавлено!", Toast.LENGTH_SHORT).show();
                     } catch (Exception e) {
                         Toast.makeText(MainActivity.this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -223,25 +258,8 @@ public class MainActivity extends Activity {
             .show();
     }
     
-    private void showThemeDialog() {
-        String[] themes = {"Белая", "Черная", "Нежно-розовая"};
-        new AlertDialog.Builder(this)
-            .setTitle("Выберите тему")
-            .setItems(themes, new DialogInterface.OnClickListener() {
-                public void onClick(DialogInterface dialog, int which) {
-                    switch(which) {
-                        case 0: currentTheme = "white"; break;
-                        case 1: currentTheme = "black"; break;
-                        case 2: currentTheme = "pink"; break;
-                    }
-                    prefs.edit().putString("theme", currentTheme).apply();
-                    recreate();
-                }
-            })
-            .show();
-    }
-    
-    private void openFilePicker(boolean isUpdate) {
+    private void openFilePicker(boolean isUpdate, JSONObject appToUpdate) {
+        updateApp = appToUpdate;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
@@ -252,21 +270,25 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         
-        if (resultCode != RESULT_OK || data == null) return;
+        if (resultCode != RESULT_OK || data == null) {
+            updateApp = null;
+            return;
+        }
         Uri uri = data.getData();
-        if (uri == null) return;
+        if (uri == null) {
+            updateApp = null;
+            return;
+        }
         
         if (requestCode == 1) {
-            // Добавление нового приложения
             try {
                 saveNewWebApp(uri);
-                loadSavedApps();
+                loadApps();
                 Toast.makeText(this, "Приложение добавлено!", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
                 Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
         } else if (requestCode == 2) {
-            // Обновление существующего
             try {
                 performUpdate(uri);
             } catch (Exception e) {
@@ -276,49 +298,147 @@ public class MainActivity extends Activity {
     }
     
     private void saveNewWebApp(Uri uri) throws Exception {
-        // Создаём уникальную папку для приложения
-        String baseName = getCleanName(uri);
-        String folderName = baseName + "_" + System.currentTimeMillis();
+        String html = readTextFromUri(uri);
         
+        // Парсим название и иконку из HTML
+        String htmlTitle = parseTitle(html);
+        String iconUrl = parseIconUrl(html);
+        
+        String fileName = getFileName(uri);
+        String baseName = fileName.replace(".html", "").replace(".htm", "");
+        if (baseName.isEmpty()) baseName = "app";
+        
+        // Если есть <title> — используем его
+        String finalName = (htmlTitle != null && !htmlTitle.isEmpty()) ? htmlTitle : baseName;
+        
+        // Создаём папку
+        String folderName = "app_" + System.currentTimeMillis();
         File appDir = new File(new File(getFilesDir(), "webapps"), folderName);
         appDir.mkdirs();
         
         File destFile = new File(appDir, "index.html");
-        copyFile(uri, destFile);
+        FileOutputStream fos = new FileOutputStream(destFile);
+        fos.write(html.getBytes("UTF-8"));
+        fos.close();
+        
+        // Загружаем иконку, если она есть
+        String savedIconPath = "";
+        if (iconUrl != null && !iconUrl.isEmpty()) {
+            savedIconPath = downloadIcon(iconUrl, appDir);
+        }
         
         JSONArray apps = getSavedApps();
         JSONObject app = new JSONObject();
-        app.put("name", baseName);
+        app.put("name", finalName);
         app.put("folder", folderName);
         app.put("path", destFile.getAbsolutePath());
+        app.put("icon", savedIconPath);
         app.put("type", "file");
         app.put("date", System.currentTimeMillis());
+        app.put("perm_camera", true);
+        app.put("perm_mic", true);
+        app.put("perm_notif", true);
         apps.put(app);
         
         prefs.edit().putString("apps", apps.toString()).apply();
     }
     
-    private String getCleanName(Uri uri) {
-        String name = "app";
+    private String readTextFromUri(Uri uri) throws Exception {
+        InputStream is = getContentResolver().openInputStream(uri);
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] buf = new byte[4096];
+        int len;
+        while ((len = is.read(buf)) > 0) bos.write(buf, 0, len);
+        is.close();
+        return new String(bos.toByteArray(), "UTF-8");
+    }
+    
+    private String parseTitle(String html) {
+        try {
+            Pattern p = Pattern.compile("<title[^>]*>(.*?)</title>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+            Matcher m = p.matcher(html);
+            if (m.find()) {
+                String title = m.group(1).trim();
+                if (title.length() > 30) title = title.substring(0, 30);
+                return title;
+            }
+        } catch (Exception e) {}
+        return null;
+    }
+    
+    private String parseIconUrl(String html) {
+        try {
+            // <link rel="icon" href="...">
+            Pattern p1 = Pattern.compile("<link[^>]*rel=[\"'](?:icon|shortcut icon|apple-touch-icon)[\"'][^>]*href=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
+            Matcher m1 = p1.matcher(html);
+            if (m1.find()) return m1.group(1);
+            
+            // <link href="..." rel="icon">
+            Pattern p2 = Pattern.compile("<link[^>]*href=[\"']([^\"']+)[\"'][^>]*rel=[\"'](?:icon|shortcut icon|apple-touch-icon)[\"']", Pattern.CASE_INSENSITIVE);
+            Matcher m2 = p2.matcher(html);
+            if (m2.find()) return m2.group(1);
+            
+            // <meta property="og:image" content="...">
+            Pattern p3 = Pattern.compile("<meta[^>]*property=[\"']og:image[\"'][^>]*content=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE);
+            Matcher m3 = p3.matcher(html);
+            if (m3.find()) return m3.group(1);
+        } catch (Exception e) {}
+        return null;
+    }
+    
+    private String downloadIcon(String url, File appDir) {
+        try {
+            if (url.startsWith("//")) url = "https:" + url;
+            if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("data:")) {
+                return ""; // относительный путь — не поддерживаем
+            }
+            
+            File iconFile = new File(appDir, "icon.png");
+            
+            if (url.startsWith("data:image")) {
+                // base64
+                int comma = url.indexOf(',');
+                if (comma > 0) {
+                    String b64 = url.substring(comma + 1);
+                    byte[] bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT);
+                    FileOutputStream fos = new FileOutputStream(iconFile);
+                    fos.write(bytes);
+                    fos.close();
+                    return iconFile.getAbsolutePath();
+                }
+                return "";
+            }
+            
+            // Скачиваем
+            URL u = new URL(url);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            conn.setInstanceFollowRedirects(true);
+            conn.connect();
+            
+            InputStream is = conn.getInputStream();
+            FileOutputStream fos = new FileOutputStream(iconFile);
+            byte[] buf = new byte[4096];
+            int len;
+            while ((len = is.read(buf)) > 0) fos.write(buf, 0, len);
+            fos.close();
+            is.close();
+            
+            return iconFile.getAbsolutePath();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+    
+    private String getFileName(Uri uri) {
+        String result = "app.html";
         String path = uri.getLastPathSegment();
         if (path != null) {
             if (path.contains("/")) path = path.substring(path.lastIndexOf("/") + 1);
-            name = path.replace(".html", "").replace(".htm", "");
-            if (name.isEmpty()) name = "app";
+            result = path;
         }
-        return name;
-    }
-    
-    private void copyFile(Uri uri, File dest) throws Exception {
-        InputStream is = getContentResolver().openInputStream(uri);
-        FileOutputStream os = new FileOutputStream(dest);
-        byte[] buffer = new byte[4096];
-        int len;
-        while ((len = is.read(buffer)) > 0) {
-            os.write(buffer, 0, len);
-        }
-        os.close();
-        is.close();
+        return result;
     }
     
     private void performUpdate(Uri uri) throws Exception {
@@ -327,25 +447,24 @@ public class MainActivity extends Activity {
         final JSONObject app = updateApp;
         final Uri fileUri = uri;
         
-        // Определяем новое имя из файла
-        String newName = getCleanName(uri);
+        String newHtml = readTextFromUri(uri);
+        String newTitle = parseTitle(newHtml);
         final String oldName = app.getString("name");
         
-        if (!newName.equals(oldName)) {
-            // Спрашиваем: переименовать?
+        if (newTitle != null && !newTitle.isEmpty() && !newTitle.equals(oldName)) {
             new AlertDialog.Builder(this)
                 .setTitle("Переименовать?")
-                .setMessage("Имя файла: \"" + newName + "\"\nТекущее имя: \"" + oldName + "\"\n\nПереименовать приложение?")
-                .setPositiveButton("Да, переименовать", new DialogInterface.OnClickListener() {
+                .setMessage("Новое имя: \"" + newTitle + "\"\nТекущее: \"" + oldName + "\"\n\nПереименовать?")
+                .setPositiveButton("Да", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         try {
-                            doUpdateFile(app, fileUri, newName);
+                            doUpdateFile(app, fileUri, newTitle);
                         } catch (Exception e) {
                             Toast.makeText(MainActivity.this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
                         }
                     }
                 })
-                .setNegativeButton("Нет, оставить имя", new DialogInterface.OnClickListener() {
+                .setNegativeButton("Нет", new DialogInterface.OnClickListener() {
                     public void onClick(DialogInterface d, int w) {
                         try {
                             doUpdateFile(app, fileUri, null);
@@ -356,51 +475,43 @@ public class MainActivity extends Activity {
                 })
                 .show();
         } else {
-            // Имя совпадает — обновляем без вопросов
             doUpdateFile(app, fileUri, null);
         }
     }
     
     private void doUpdateFile(JSONObject app, Uri uri, String newName) throws Exception {
-        // Получаем путь к файлу в существующей папке
+        String html = readTextFromUri(uri);
+        String iconUrl = parseIconUrl(html);
+        
         String oldPath = app.getString("path");
         File oldFile = new File(oldPath);
+        File appDir = oldFile.getParentFile();
         
-        // Перезаписываем тот же самый файл index.html — origin сохранится!
-        copyFile(uri, oldFile);
+        // Перезаписываем файл — origin сохраняется!
+        FileOutputStream fos = new FileOutputStream(oldFile);
+        fos.write(html.getBytes("UTF-8"));
+        fos.close();
         
-        // Если нужно переименовать — меняем только отображаемое имя в JSON
-        if (newName != null) {
-            app.put("name", newName);
-            
-            // Обновляем в общем списке
-            JSONArray apps = getSavedApps();
-            for (int i = 0; i < apps.length(); i++) {
-                JSONObject current = apps.getJSONObject(i);
-                if (current.optString("path", "").equals(oldPath)) {
-                    current.put("name", newName);
-                    break;
-                }
-            }
-            prefs.edit().putString("apps", apps.toString()).apply();
+        // Обновляем иконку, если есть
+        String newIcon = "";
+        if (iconUrl != null && !iconUrl.isEmpty() && appDir != null) {
+            newIcon = downloadIcon(iconUrl, appDir);
         }
         
-        app.put("date", System.currentTimeMillis());
-        
-        // Обновляем дату в списке
-        JSONArray apps2 = getSavedApps();
-        for (int i = 0; i < apps2.length(); i++) {
-            JSONObject current = apps2.getJSONObject(i);
+        JSONArray apps = getSavedApps();
+        for (int i = 0; i < apps.length(); i++) {
+            JSONObject current = apps.getJSONObject(i);
             if (current.optString("path", "").equals(oldPath)) {
+                if (newName != null) current.put("name", newName);
+                if (!newIcon.isEmpty()) current.put("icon", newIcon);
                 current.put("date", System.currentTimeMillis());
                 break;
             }
         }
-        prefs.edit().putString("apps", apps2.toString()).apply();
+        prefs.edit().putString("apps", apps.toString()).apply();
         
-        updateIndex = -1;
         updateApp = null;
-        loadSavedApps();
+        loadApps();
         
         Toast.makeText(this, "Обновлено! Данные сохранены.", Toast.LENGTH_LONG).show();
     }
@@ -413,8 +524,8 @@ public class MainActivity extends Activity {
         }
     }
     
-    private void loadSavedApps() {
-        appsContainer.removeAllViews();
+    private void loadApps() {
+        appsGrid.removeAllViews();
         
         try {
             JSONArray apps = getSavedApps();
@@ -423,11 +534,11 @@ public class MainActivity extends Activity {
                 LinearLayout emptyBox = new LinearLayout(this);
                 emptyBox.setOrientation(LinearLayout.VERTICAL);
                 emptyBox.setGravity(Gravity.CENTER);
-                emptyBox.setPadding(0, dp(80), 0, dp(80));
+                emptyBox.setPadding(0, dp(100), 0, dp(100));
                 
                 TextView emptyIcon = new TextView(this);
                 emptyIcon.setText("📱");
-                emptyIcon.setTextSize(48);
+                emptyIcon.setTextSize(56);
                 emptyIcon.setGravity(Gravity.CENTER);
                 
                 TextView emptyText = new TextView(this);
@@ -439,7 +550,7 @@ public class MainActivity extends Activity {
                 emptyText.setPadding(0, dp(16), 0, dp(8));
                 
                 TextView emptyHint = new TextView(this);
-                emptyHint.setText("Добавьте HTML-файл или ссылку");
+                emptyHint.setText("Нажмите + чтобы добавить");
                 emptyHint.setTextColor(subTextColor);
                 emptyHint.setTextSize(14);
                 emptyHint.setGravity(Gravity.CENTER);
@@ -447,10 +558,40 @@ public class MainActivity extends Activity {
                 emptyBox.addView(emptyIcon);
                 emptyBox.addView(emptyText);
                 emptyBox.addView(emptyHint);
-                appsContainer.addView(emptyBox);
-            } else {
-                for (int i = 0; i < apps.length(); i++) {
-                    addAppCard(apps.getJSONObject(i));
+                appsGrid.addView(emptyBox);
+                return;
+            }
+            
+            // Строим сетку по 4 колонки
+            int columns = 4;
+            LinearLayout currentRow = null;
+            
+            for (int i = 0; i < apps.length(); i++) {
+                if (i % columns == 0) {
+                    currentRow = new LinearLayout(this);
+                    currentRow.setOrientation(LinearLayout.HORIZONTAL);
+                    currentRow.setPadding(0, 0, 0, dp(20));
+                    appsGrid.addView(currentRow);
+                }
+                
+                final JSONObject app = apps.getJSONObject(i);
+                View iconView = createAppIcon(app);
+                
+                LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                iconView.setLayoutParams(itemParams);
+                currentRow.addView(iconView);
+            }
+            
+            // Добиваем пустыми местами в последней строке
+            if (currentRow != null) {
+                int lastRowCount = apps.length() % columns;
+                if (lastRowCount > 0) {
+                    for (int i = lastRowCount; i < columns; i++) {
+                        View empty = new View(this);
+                        empty.setLayoutParams(new LinearLayout.LayoutParams(0, dp(1), 1f));
+                        currentRow.addView(empty);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -458,233 +599,290 @@ public class MainActivity extends Activity {
         }
     }
     
-    private void addAppCard(final JSONObject app) throws Exception {
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(20), dp(18), dp(20), dp(18));
+    private View createAppIcon(final JSONObject app) throws Exception {
+        LinearLayout wrapper = new LinearLayout(this);
+        wrapper.setOrientation(LinearLayout.VERTICAL);
+        wrapper.setGravity(Gravity.CENTER_HORIZONTAL);
         
-        GradientDrawable cardBg = new GradientDrawable();
-        cardBg.setColor(cardColor);
-        cardBg.setCornerRadius(dp(20));
-        card.setBackground(cardBg);
+        // Иконка (квадрат со скруглением)
+        FrameLayout iconFrame = new FrameLayout(this);
+        int iconSize = dp(64);
+        FrameLayout.LayoutParams frameParams = new FrameLayout.LayoutParams(iconSize, iconSize);
+        iconFrame.setLayoutParams(frameParams);
         
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        );
-        cardParams.setMargins(0, 0, 0, dp(12));
-        card.setLayoutParams(cardParams);
-        
-        // Верхняя строка: иконка + название
-        LinearLayout topRow = new LinearLayout(this);
-        topRow.setOrientation(LinearLayout.HORIZONTAL);
-        topRow.setGravity(Gravity.CENTER_VERTICAL);
-        
-        TextView icon = new TextView(this);
-        String type = app.optString("type", "file");
-        icon.setText(type.equals("url") ? "🌐" : "📄");
-        icon.setTextSize(22);
-        icon.setGravity(Gravity.CENTER);
-        
+        // Фон-скругление
         GradientDrawable iconBg = new GradientDrawable();
-        iconBg.setShape(GradientDrawable.OVAL);
-        iconBg.setColor(adjustAlpha(accentColor, 0.15f));
-        icon.setBackground(iconBg);
+        iconBg.setColor(cardColor);
+        iconBg.setCornerRadius(dp(14));
+        iconFrame.setBackground(iconBg);
+        iconFrame.setClipToOutline(true);
         
-        int iconSize = dp(48);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(iconSize, iconSize);
-        iconParams.setMargins(0, 0, dp(14), 0);
-        icon.setLayoutParams(iconParams);
+        // Загружаем картинку или ставим букву
+        String iconPath = app.optString("icon", "");
+        boolean iconLoaded = false;
         
-        LinearLayout textCol = new LinearLayout(this);
-        textCol.setOrientation(LinearLayout.VERTICAL);
-        textCol.setLayoutParams(new LinearLayout.LayoutParams(0, 
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        
-        TextView nameText = new TextView(this);
-        nameText.setText(app.getString("name"));
-        nameText.setTextColor(textColor);
-        nameText.setTextSize(17);
-        nameText.setTypeface(null, Typeface.BOLD);
-        nameText.setMaxLines(1);
-        nameText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        
-        TextView subText = new TextView(this);
-        if (type.equals("url")) {
-            subText.setText(app.optString("url", ""));
-        } else {
-            subText.setText("Локальный файл");
-        }
-        subText.setTextColor(subTextColor);
-        subText.setTextSize(12);
-        subText.setMaxLines(1);
-        subText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        subText.setPadding(0, dp(4), 0, 0);
-        
-        textCol.addView(nameText);
-        textCol.addView(subText);
-        
-        topRow.addView(icon);
-        topRow.addView(textCol);
-        card.addView(topRow);
-        
-        // Кнопки
-        LinearLayout btnRow = new LinearLayout(this);
-        btnRow.setOrientation(LinearLayout.HORIZONTAL);
-        btnRow.setPadding(0, dp(14), 0, 0);
-        
-        final String appName = app.getString("name");
-        final String appPath = app.optString("path", "");
-        final String appUrl = app.optString("url", "");
-        final String appType = type;
-        
-        // Открыть
-        Button btnOpen = createSmallButton("Открыть", true);
-        btnOpen.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                Intent intent = new Intent(MainActivity.this, WebAppActivity.class);
-                if (appType.equals("url")) {
-                    intent.putExtra("url", appUrl);
-                } else {
-                    intent.putExtra("filePath", appPath);
-                }
-                startActivity(intent);
+        if (!iconPath.isEmpty()) {
+            File iconFile = new File(iconPath);
+            if (iconFile.exists()) {
+                try {
+                    Bitmap bmp = BitmapFactory.decodeFile(iconPath);
+                    if (bmp != null) {
+                        ImageView iv = new ImageView(this);
+                        iv.setImageBitmap(bmp);
+                        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+                        iv.setLayoutParams(new FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT, 
+                            FrameLayout.LayoutParams.MATCH_PARENT));
+                        iconFrame.addView(iv);
+                        iconLoaded = true;
+                    }
+                } catch (Exception e) {}
             }
-        });
-        
-        // Обновить (только для файлов) или Ярлык (для ссылок)
-        Button btnMiddle;
-        if (appType.equals("file")) {
-            btnMiddle = createSmallButton("Обновить", false);
-            btnMiddle.setOnClickListener(new View.OnClickListener() {
-                public void onClick(View v) {
-                    confirmUpdate(app);
-                }
-            });
-        } else {
-            btnMiddle = createSmallButton("Ярлык", false);
-            btnMiddle.setOnClickListener(new View.OnClickListener() {
-                public void onClick(View v) {
-                    createShortcut(appName, appPath, appUrl, appType);
-                }
-            });
         }
         
-        Button btnDelete = createSmallButton("Удалить", false);
-        btnDelete.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View v) {
-                confirmDelete(appPath, appUrl);
-            }
-        });
-        
-        LinearLayout.LayoutParams smallParams = new LinearLayout.LayoutParams(
-            0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-        smallParams.setMargins(dp(3), 0, dp(3), 0);
-        btnOpen.setLayoutParams(smallParams);
-        btnMiddle.setLayoutParams(smallParams);
-        btnDelete.setLayoutParams(smallParams);
-        
-        btnRow.addView(btnOpen);
-        btnRow.addView(btnMiddle);
-        btnRow.addView(btnDelete);
-        card.addView(btnRow);
-        
-        // Вторая строка кнопок для файлов: ярлык отдельно
-        if (appType.equals("file")) {
-            LinearLayout btnRow2 = new LinearLayout(this);
-            btnRow2.setOrientation(LinearLayout.HORIZONTAL);
-            btnRow2.setPadding(0, dp(8), 0, 0);
+        if (!iconLoaded) {
+            // Заглушка — первая буква + цвет от хэша
+            String name = app.getString("name");
+            String letter = name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase();
             
-            Button btnShortcut = createSmallButton("Создать ярлык", false);
-            btnShortcut.setOnClickListener(new View.OnClickListener() {
-                public void onClick(View v) {
-                    createShortcut(appName, appPath, appUrl, appType);
-                }
-            });
-            btnShortcut.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 
-                LinearLayout.LayoutParams.WRAP_CONTENT));
-            btnRow2.addView(btnShortcut);
-            card.addView(btnRow2);
+            TextView letterView = new TextView(this);
+            letterView.setText(letter);
+            letterView.setTextSize(28);
+            letterView.setTextColor(Color.WHITE);
+            letterView.setTypeface(null, Typeface.BOLD);
+            letterView.setGravity(Gravity.CENTER);
+            letterView.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, 
+                FrameLayout.LayoutParams.MATCH_PARENT));
+            
+            GradientDrawable stubBg = new GradientDrawable();
+            stubBg.setColor(generateColor(name));
+            stubBg.setCornerRadius(dp(14));
+            letterView.setBackground(stubBg);
+            
+            iconFrame.addView(letterView);
         }
         
-        appsContainer.addView(card);
+        // Название под иконкой
+        TextView nameView = new TextView(this);
+        nameView.setText(app.getString("name"));
+        nameView.setTextSize(11);
+        nameView.setTextColor(textColor);
+        nameView.setGravity(Gravity.CENTER);
+        nameView.setMaxLines(2);
+        nameView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        nameView.setPadding(dp(2), dp(6), dp(2), 0);
+        
+        wrapper.addView(iconFrame);
+        wrapper.addView(nameView);
+        
+        // Клик — открыть
+        wrapper.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                openApp(app);
+            }
+        });
+        
+        // Долгое нажатие — меню
+        wrapper.setOnLongClickListener(new View.OnLongClickListener() {
+            public boolean onLongClick(View v) {
+                showAppMenu(app, v);
+                return true;
+            }
+        });
+        
+        return wrapper;
+    }
+    
+    private int generateColor(String name) {
+        int hash = name.hashCode();
+        int[] colors = {
+            0xFFE57373, 0xFFF06292, 0xFFBA68C8, 0xFF9575CD,
+            0xFF7986CB, 0xFF64B5F6, 0xFF4FC3F7, 0xFF4DD0E1,
+            0xFF4DB6AC, 0xFF81C784, 0xFFAED581, 0xFFFFB74D,
+            0xFFFF8A65, 0xFFA1887F, 0xFF90A4AE
+        };
+        return colors[Math.abs(hash) % colors.length];
+    }
+    
+    private void showAppMenu(final JSONObject app, View anchor) {
+        PopupMenu popup = new PopupMenu(this, anchor);
+        popup.getMenu().add("📂  Открыть");
+        popup.getMenu().add("📌  Создать ярлык");
+        
+        String type = app.optString("type", "file");
+        if (type.equals("file")) {
+            popup.getMenu().add("🔄  Обновить");
+        }
+        
+        popup.getMenu().add("✏️  Переименовать");
+        popup.getMenu().add("🔐  Разрешения");
+        popup.getMenu().add("🗑  Удалить");
+        
+        popup.setOnMenuItemClickListener(new PopupMenu.OnMenuItemClickListener() {
+            public boolean onMenuItemClick(android.view.MenuItem item) {
+                String t = item.getTitle().toString();
+                if (t.contains("Открыть")) {
+                    openApp(app);
+                } else if (t.contains("ярлык")) {
+                    try {
+                        createShortcut(app.getString("name"),
+                            app.optString("path", ""),
+                            app.optString("url", ""),
+                            app.optString("type", "file"));
+                    } catch (Exception e) {}
+                } else if (t.contains("Обновить")) {
+                    confirmUpdate(app);
+                } else if (t.contains("Переименовать")) {
+                    renameApp(app);
+                } else if (t.contains("Разрешения")) {
+                    showAppPermissions(app);
+                } else if (t.contains("Удалить")) {
+                    confirmDelete(app);
+                }
+                return true;
+            }
+        });
+        popup.show();
+    }
+    
+    private void openApp(JSONObject app) {
+        try {
+            Intent intent = new Intent(this, WebAppActivity.class);
+            if (app.optString("type", "file").equals("url")) {
+                intent.putExtra("url", app.optString("url", ""));
+            } else {
+                intent.putExtra("filePath", app.optString("path", ""));
+            }
+            intent.putExtra("appName", app.getString("name"));
+            intent.putExtra("perm_camera", app.optBoolean("perm_camera", true));
+            intent.putExtra("perm_mic", app.optBoolean("perm_mic", true));
+            intent.putExtra("perm_notif", app.optBoolean("perm_notif", true));
+            startActivity(intent);
+        } catch (Exception e) {
+            Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+    
+    private void renameApp(final JSONObject app) {
+        final EditText input = new EditText(this);
+        try {
+            input.setText(app.getString("name"));
+        } catch (Exception e) {}
+        input.setSelectAllOnFocus(true);
+        input.setPadding(dp(16), dp(16), dp(16), dp(16));
+        
+        new AlertDialog.Builder(this)
+            .setTitle("Переименовать")
+            .setView(input)
+            .setPositiveButton("Сохранить", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    String newName = input.getText().toString().trim();
+                    if (newName.isEmpty()) return;
+                    try {
+                        String path = app.optString("path", "");
+                        String url = app.optString("url", "");
+                        JSONArray apps = getSavedApps();
+                        for (int i = 0; i < apps.length(); i++) {
+                            JSONObject current = apps.getJSONObject(i);
+                            boolean match = (!path.isEmpty() && current.optString("path", "").equals(path))
+                                         || (!url.isEmpty() && current.optString("url", "").equals(url));
+                            if (match) {
+                                current.put("name", newName);
+                                break;
+                            }
+                        }
+                        prefs.edit().putString("apps", apps.toString()).apply();
+                        loadApps();
+                    } catch (Exception e) {}
+                }
+            })
+            .setNegativeButton("Отмена", null)
+            .show();
+    }
+    
+    private void showAppPermissions(final JSONObject app) {
+        try {
+            String name = app.getString("name");
+            final boolean[] perms = {
+                app.optBoolean("perm_camera", true),
+                app.optBoolean("perm_mic", true),
+                app.optBoolean("perm_notif", true)
+            };
+            String[] labels = {"Камера", "Микрофон", "Уведомления"};
+            
+            new AlertDialog.Builder(this)
+                .setTitle("Разрешения: " + name)
+                .setMultiChoiceItems(labels, perms, new DialogInterface.OnMultiChoiceClickListener() {
+                    public void onClick(DialogInterface d, int which, boolean isChecked) {
+                        perms[which] = isChecked;
+                    }
+                })
+                .setPositiveButton("Сохранить", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d, int w) {
+                        try {
+                            String path = app.optString("path", "");
+                            String url = app.optString("url", "");
+                            JSONArray apps = getSavedApps();
+                            for (int i = 0; i < apps.length(); i++) {
+                                JSONObject current = apps.getJSONObject(i);
+                                boolean match = (!path.isEmpty() && current.optString("path", "").equals(path))
+                                             || (!url.isEmpty() && current.optString("url", "").equals(url));
+                                if (match) {
+                                    current.put("perm_camera", perms[0]);
+                                    current.put("perm_mic", perms[1]);
+                                    current.put("perm_notif", perms[2]);
+                                    break;
+                                }
+                            }
+                            prefs.edit().putString("apps", apps.toString()).apply();
+                            Toast.makeText(MainActivity.this, "Сохранено", Toast.LENGTH_SHORT).show();
+                        } catch (Exception e) {}
+                    }
+                })
+                .setNegativeButton("Отмена", null)
+                .show();
+        } catch (Exception e) {}
     }
     
     private void confirmUpdate(final JSONObject app) {
         new AlertDialog.Builder(this)
             .setTitle("Обновить приложение?")
-            .setMessage("Файл будет заменён новой версией.\n\n✅ Данные (localStorage, cookies, настройки) сохранятся.\n\nПродолжить?")
+            .setMessage("Файл будет заменён новой версией.\n\n✅ Данные сохранятся.\n\nПродолжить?")
             .setPositiveButton("Обновить", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) {
-                    updateApp = app;
-                    openFilePicker(true);
+                    openFilePicker(true, app);
                 }
             })
             .setNegativeButton("Отмена", null)
             .show();
     }
     
-    private void confirmDelete(String path, String url) {
+    private void confirmDelete(final JSONObject app) {
         new AlertDialog.Builder(this)
-            .setTitle("Удалить приложение?")
-            .setMessage("⚠️ Все данные приложения будут потеряны безвозвратно.\n\nПродолжить?")
+            .setTitle("Удалить?")
+            .setMessage("⚠️ Все данные приложения будут потеряны.\n\nПродолжить?")
             .setPositiveButton("Удалить", new DialogInterface.OnClickListener() {
                 public void onClick(DialogInterface d, int w) {
-                    deleteApp(path, url);
+                    deleteApp(app);
                 }
             })
             .setNegativeButton("Отмена", null)
             .show();
-    }
-    
-    private int adjustAlpha(int color, float factor) {
-        int alpha = Math.round(Color.alpha(color) * factor);
-        int red = Color.red(color);
-        int green = Color.green(color);
-        int blue = Color.blue(color);
-        return Color.argb(alpha, red, green, blue);
-    }
-    
-    private Button createSmallButton(String text, boolean primary) {
-        Button btn = new Button(this);
-        btn.setText(text);
-        btn.setTextSize(12);
-        btn.setAllCaps(false);
-        btn.setTypeface(null, Typeface.BOLD);
-        
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setCornerRadius(dp(20));
-        
-        if (primary) {
-            drawable.setColor(accentColor);
-            btn.setTextColor(Color.WHITE);
-        } else {
-            drawable.setColor(adjustAlpha(textColor, 0.08f));
-            btn.setTextColor(textColor);
-        }
-        
-        btn.setBackground(drawable);
-        btn.setPadding(dp(4), dp(8), dp(4), dp(8));
-        
-        return btn;
     }
     
     private void createShortcut(String name, String path, String url, String type) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
-                ShortcutManager shortcutManager = getSystemService(ShortcutManager.class);
-                
-                if (shortcutManager != null && shortcutManager.isRequestPinShortcutSupported()) {
+                ShortcutManager sm = getSystemService(ShortcutManager.class);
+                if (sm != null && sm.isRequestPinShortcutSupported()) {
                     Intent intent = new Intent(this, WebAppActivity.class);
                     intent.setAction(Intent.ACTION_VIEW);
-                    if (type.equals("url")) {
-                        intent.putExtra("url", url);
-                    } else {
-                        intent.putExtra("filePath", path);
-                    }
+                    if (type.equals("url")) intent.putExtra("url", url);
+                    else intent.putExtra("filePath", path);
+                    intent.putExtra("appName", name);
                     
-                    ShortcutInfo shortcut = new ShortcutInfo.Builder(this, 
+                    ShortcutInfo shortcut = new ShortcutInfo.Builder(this,
                         "lapp_" + name + "_" + System.currentTimeMillis())
                         .setShortLabel(name)
                         .setLongLabel(name)
@@ -692,75 +890,29 @@ public class MainActivity extends Activity {
                         .setIntent(intent)
                         .build();
                     
-                    shortcutManager.requestPinShortcut(shortcut, null);
-                    Toast.makeText(this, "Запрос на создание ярлыка отправлен", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(this, "Ярлыки не поддерживаются", Toast.LENGTH_LONG).show();
+                    sm.requestPinShortcut(shortcut, null);
+                    Toast.makeText(this, "Запрос отправлен", Toast.LENGTH_SHORT).show();
                 }
             } catch (Exception e) {
-                Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_SHORT).show();
             }
-        } else {
-            Intent shortcutIntent = new Intent(this, WebAppActivity.class);
-            shortcutIntent.setAction(Intent.ACTION_VIEW);
-            if (type.equals("url")) {
-                shortcutIntent.putExtra("url", url);
-            } else {
-                shortcutIntent.putExtra("filePath", path);
-            }
-            
-            Intent addIntent = new Intent();
-            addIntent.putExtra(Intent.EXTRA_SHORTCUT_INTENT, shortcutIntent);
-            addIntent.putExtra(Intent.EXTRA_SHORTCUT_NAME, name);
-            addIntent.putExtra(Intent.EXTRA_SHORTCUT_ICON_RESOURCE,
-                Intent.ShortcutIconResource.fromContext(this, R.drawable.ic_launcher));
-            addIntent.setAction("com.android.launcher.action.INSTALL_SHORTCUT");
-            sendBroadcast(addIntent);
-            
-            Toast.makeText(this, "Ярлык создан!", Toast.LENGTH_SHORT).show();
         }
     }
     
-    private void deleteApp(String path, String url) {
+    private void deleteApp(JSONObject app) {
         try {
-            // Удаляем всю папку приложения
+            String path = app.optString("path", "");
+            String url = app.optString("url", "");
+            
             if (!path.isEmpty()) {
                 File file = new File(path);
-                File parentDir = file.getParentFile();
-                if (parentDir != null && parentDir.exists()) {
-                    deleteRecursive(parentDir);
-                } else if (file.exists()) {
-                    file.delete();
-                }
+                File parent = file.getParentFile();
+                if (parent != null && parent.exists()) deleteRecursive(parent);
             }
             
             JSONArray apps = getSavedApps();
             JSONArray newApps = new JSONArray();
-            
             for (int i = 0; i < apps.length(); i++) {
                 JSONObject current = apps.getJSONObject(i);
                 boolean matchPath = !path.isEmpty() && current.optString("path", "").equals(path);
-                boolean matchUrl = !url.isEmpty() && current.optString("url", "").equals(url);
-                if (!matchPath && !matchUrl) {
-                    newApps.put(current);
-                }
-            }
-            
-            prefs.edit().putString("apps", newApps.toString()).apply();
-            loadSavedApps();
-            Toast.makeText(this, "Удалено", Toast.LENGTH_SHORT).show();
-        } catch (Exception e) {
-            Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-    
-    private void deleteRecursive(File file) {
-        if (file.isDirectory()) {
-            File[] children = file.listFiles();
-            if (children != null) {
-                for (File child : children) deleteRecursive(child);
-            }
-        }
-        file.delete();
-    }
-}
+                boolean matchUrl = !url.isEmpty() && current.optString("url", "").
