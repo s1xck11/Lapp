@@ -915,4 +915,22 @@ public class MainActivity extends Activity {
             for (int i = 0; i < apps.length(); i++) {
                 JSONObject current = apps.getJSONObject(i);
                 boolean matchPath = !path.isEmpty() && current.optString("path", "").equals(path);
-                boolean matchUrl = !url.isEmpty() && current.optString("url", "").
+                boolean matchUrl = !url.isEmpty() && current.optString("url", "").equals(url);
+                if (!matchPath && !matchUrl) newApps.put(current);
+            }
+            prefs.edit().putString("apps", newApps.toString()).apply();
+            loadApps();
+            Toast.makeText(this, "Удалено", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Ошибка: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+    
+    private void deleteRecursive(File file) {
+        if (file.isDirectory()) {
+            File[] children = file.listFiles();
+            if (children != null) for (File c : children) deleteRecursive(c);
+        }
+        file.delete();
+    }
+}
