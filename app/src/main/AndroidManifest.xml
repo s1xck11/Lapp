@@ -1,24 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Базовые разрешения для интернета -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
-    <!-- Разрешения для работы с файлами -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-
-    <!-- Разрешения для камеры и микрофона -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-
-    <!-- Разрешение для уведомлений (Android 13+) и ярлыков -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
 
-    <!-- Указываем, что приложение может работать без камеры/микрофона -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
@@ -30,7 +22,6 @@
         android:hardwareAccelerated="true"
         android:theme="@style/Theme.Lapp">
         
-        <!-- Главный экран -->
         <activity 
             android:name=".MainActivity"
             android:exported="true">
@@ -40,17 +31,15 @@
             </intent-filter>
         </activity>
         
-        <!-- Экран просмотра веб-приложения -->
         <activity 
             android:name=".WebAppActivity"
             android:exported="true">
             <intent-filter>
-                <action android:android.name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
-        <!-- Экран настроек -->
         <activity 
             android:name=".SettingsActivity"
             android:exported="false" />
